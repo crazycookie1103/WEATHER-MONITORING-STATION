@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const BASE = 'http://localhost:8000';
+const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export const getLatest = () => axios.get(`${BASE}/api/readings/latest`).then(r => r.data);
 export const getReadings = (limit = 200) => axios.get(`${BASE}/api/readings?limit=${limit}`).then(r => r.data);
