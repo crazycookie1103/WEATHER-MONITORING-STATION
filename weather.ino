@@ -1,23 +1,23 @@
 #include <WiFi.h>
-#include <WebServer.h>
+#include <HTTPClient.h>
 #include <TFT_eSPI.h>
 #include <DHT.h>
 #include <Adafruit_BMP280.h>
-
+#include <WiFiClientSecure.h>
 // ================= WIFI =================
-const char* ssid = "YOUR_WIFI_NAME";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid     = ".......";
+const char* password = "............";
+
+// ================= BACKEND =================
+const char* serverURL = "https://weather-monitoring-station.onrender.com/api/readings";
+const char* API_KEY   = "......";   // must match your .env API_KEY
 
 // ================= TFT =================
 TFT_eSPI tft = TFT_eSPI();
 
-// ================= WEB SERVER =================
-WebServer server(80);
-
-// ================= DHT11 =================
-#define DHTPIN 4
+// ================= DHT =================
+#define DHTPIN  4
 #define DHTTYPE DHT11
-
 DHT dht(DHTPIN, DHTTYPE);
 
 // ================= BMP280 =================
@@ -27,297 +27,175 @@ Adafruit_BMP280 bmp;
 #define LDR_PIN 34
 
 // ================= VARIABLES =================
-float temperature = 0;
-float humidity = 0;
-float pressure = 0;
-float altitude = 0;
+float temperature  = 0;
+float humidity     = 0;
+float pressure     = 0;
+float altitude     = 0;
+int   ldrRaw       = 0;
+int   lightPercent = 0;
 
-int ldrRaw = 0;
-int lightPercent = 0;
+unsigned long lastSensorRead = 0;
+unsigned long lastPost       = 0;
 
-unsigned long lastUpdate = 0;
+#define SENSOR_INTERVAL 2000    // read sensors every 2s (for TFT display)
+#define POST_INTERVAL   30000   // POST to server every 30s
 
-// =====================================================
-// BETTER WEBPAGE
-// =====================================================
+// ================= SETUP =================
+void setup() {
+  Serial.begin(115200);
 
-void handleRoot() {
+  tft.init();
+  tft.setRotation(1);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setCursor(0, 0);
+  tft.println("Starting...");
 
-  String html = R"rawliteral(
+  dht.begin();
 
-<!DOCTYPE html>
-<html>
+  if (!bmp.begin(0x76)) {
+    Serial.println("BMP280 not found!");
+    tft.println("BMP280 ERROR");
+    while (1) delay(500);
+  }
 
-<head>
+  tft.println("Connecting WiFi...");
+  WiFi.begin(ssid, password);
+  int tries = 0;
+  while (WiFi.status() != WL_CONNECTED && tries < 20) {
+    delay(500);
+    Serial.print(".");
+    tries++;
+  }
 
-<meta name="viewport" content="width=device-width, initial-scale=1">
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
+    tft.println("WiFi OK");
+    tft.println(WiFi.localIP().toString());
+  } else {
+    Serial.println("\nWiFi FAILED — running offline");
+    tft.println("WiFi FAILED");
+  }
 
-<meta http-equiv="refresh" content="2">
-
-<title>ESP32 Weather Station</title>
-
-<style>
-
-body{
-    background:#0f172a;
-    color:white;
-    font-family:Arial;
-    margin:0;
-    padding:20px;
+  delay(1000);
 }
 
-h1{
-    text-align:center;
-    color:#38bdf8;
+// ================= READ SENSORS =================
+void readSensors() {
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+
+  if (!isnan(t)) temperature = t;
+  if (!isnan(h)) humidity    = h;
+
+  pressure  = bmp.readPressure() / 100.0F;
+  altitude  = bmp.readAltitude(1013.25);
+  ldrRaw    = analogRead(LDR_PIN);
+  lightPercent = constrain(map(ldrRaw, 0, 4095, 0, 100), 0, 100);
 }
 
-.container{
-    display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
-    gap:20px;
-    margin-top:30px;
-}
-
-.card{
-    background:#1e293b;
-    border-radius:20px;
-    padding:20px;
-    text-align:center;
-    box-shadow:0 0 15px rgba(0,0,0,0.3);
-}
-
-.value{
-    font-size:35px;
-    margin-top:10px;
-    color:#22c55e;
-}
-
-.label{
-    font-size:18px;
-    color:#cbd5e1;
-}
-
-</style>
-
-</head>
-
-<body>
-
-<h1>ESP32 Weather Station</h1>
-
-<div class="container">
-
-<div class="card">
-<div class="label">Temperature</div>
-<div class="value">)rawliteral";
-
-  html += String(temperature,1);
-
-  html += R"rawliteral( °C</div>
-</div>
-
-<div class="card">
-<div class="label">Humidity</div>
-<div class="value">)rawliteral";
-
-  html += String(humidity,1);
-
-  html += R"rawliteral( %</div>
-</div>
-
-<div class="card">
-<div class="label">Pressure</div>
-<div class="value">)rawliteral";
-
-  html += String(pressure,1);
-
-  html += R"rawliteral( hPa</div>
-</div>
-
-<div class="card">
-<div class="label">Altitude</div>
-<div class="value">)rawliteral";
-
-  html += String(altitude,1);
-
-  html += R"rawliteral( m</div>
-</div>
-
-<div class="card">
-<div class="label">Light Level</div>
-<div class="value">)rawliteral";
-
-  html += String(lightPercent);
-
-  html += R"rawliteral( %</div>
-</div>
-
-</div>
-
-</body>
-</html>
-
-)rawliteral";
-
-  server.send(200, "text/html", html);
-}
-
-// =====================================================
-// TFT STATIC UI
-// =====================================================
-
-void drawUI() {
+// ================= UPDATE TFT =================
+void updateDisplay() {
 
   tft.fillScreen(TFT_BLACK);
 
+  tft.setTextSize(3);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setCursor(10, 5);
+  tft.println("Temperature");
+
+  tft.setTextSize(4);
   tft.setTextColor(TFT_CYAN, TFT_BLACK);
+  tft.setCursor(10, 35);
+  tft.printf("%.1f C", temperature);
 
   tft.setTextSize(2);
 
-  tft.setCursor(0,0);
-  tft.println("ESP32 WEATHER");
+  tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  tft.setCursor(10, 110);
+  tft.printf("Humidity : %.1f %%", humidity);
+
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.setCursor(10, 140);
+  tft.printf("Pressure : %.1f hPa", pressure);
 
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setCursor(10, 170);
+  tft.printf("Altitude : %.1f m", altitude);
 
-  tft.setCursor(0,40);
-  tft.println("Temp:");
-
-  tft.setCursor(0,70);
-  tft.println("Humidity:");
-
-  tft.setCursor(0,100);
-  tft.println("Pressure:");
-
-  tft.setCursor(0,130);
-  tft.println("Altitude:");
-
-  tft.setCursor(0,160);
-  tft.println("Light:");
-}
-
-// =====================================================
-// UPDATE TFT VALUES ONLY
-// =====================================================
-
-void updateTFT() {
+  tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
+  tft.setCursor(10, 200);
+  tft.printf("Light : %d %%", lightPercent);
 
   tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  tft.setCursor(200, 200);
 
-  tft.fillRect(120,40,120,20,TFT_BLACK);
-  tft.setCursor(120,40);
-  tft.print(temperature,1);
-  tft.print(" C");
-
-  tft.fillRect(120,70,120,20,TFT_BLACK);
-  tft.setCursor(120,70);
-  tft.print(humidity,1);
-  tft.print(" %");
-
-  tft.fillRect(120,100,120,20,TFT_BLACK);
-  tft.setCursor(120,100);
-  tft.print(pressure,1);
-  tft.print(" hPa");
-
-  tft.fillRect(120,130,120,20,TFT_BLACK);
-  tft.setCursor(120,130);
-  tft.print(altitude,1);
-  tft.print(" m");
-
-  tft.fillRect(120,160,120,20,TFT_BLACK);
-  tft.setCursor(120,160);
-  tft.print(lightPercent);
-  tft.print(" %");
+  if (WiFi.status() == WL_CONNECTED)
+    tft.print("WiFi OK");
+  else
+    tft.print("WiFi FAIL");
 }
 
-// =====================================================
-// SETUP
-// =====================================================
-
-void setup() {
-
-  Serial.begin(115200);
-
-  // TFT
-  tft.init();
-  tft.setRotation(1);
-
-  drawUI();
-
-  // DHT
-  dht.begin();
-
-  // BMP280
-  if (!bmp.begin(0x76)) {
-
-    tft.setCursor(0,200);
-    tft.println("BMP280 ERROR");
-
-    while(1);
+// ================= POST TO SERVER =================
+void postReadings() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("POST skipped — no WiFi");
+    return;
   }
 
-  // WIFI
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
+ WiFiClientSecure client;
+client.setInsecure();   //  (allows HTTPS without cert)
 
-  delay(1000);
+HTTPClient http;
+http.begin(client, serverURL);  // client added here
 
-  WiFi.begin(ssid, password);
+http.addHeader("Content-Type", "application/json");
+http.addHeader("X-API-Key", API_KEY);
+  http.setTimeout(10000);   // 10s timeout
 
-  tft.setCursor(0,200);
-  tft.println("Connecting WiFi");
+  // Build JSON manually — no ArduinoJson needed
+  String body = "{";
+  body += "\"temperature\":"   + String(temperature,  2) + ",";
+  body += "\"humidity\":"      + String(humidity,     2) + ",";
+  body += "\"pressure\":"      + String(pressure,     2) + ",";
+  body += "\"altitude\":"      + String(altitude,     2) + ",";
+  body += "\"light_percent\":" + String(lightPercent)    + ",";
+  body += "\"ldr_raw\":"       + String(ldrRaw);
+  body += "}";
 
-  while (WiFi.status() != WL_CONNECTED) {
+  Serial.println("Posting: " + body);
+  int code = http.POST(body);
 
-    delay(500);
-
-    Serial.print(".");
+  if (code == 200 || code == 201) {
+    Serial.println("POST OK — " + String(code));
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.setCursor(0, 108);
+    tft.println("Last post: OK");
+  } else {
+    Serial.println("POST FAILED — code: " + String(code));
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.setCursor(0, 108);
+    tft.printf("POST failed: %d", code);
   }
 
-  tft.fillRect(0,200,240,20,TFT_BLACK);
-
-  tft.setCursor(0,200);
-
-  tft.println(WiFi.localIP());
-
-  Serial.println(WiFi.localIP());
-
-  // WEBPAGE
-  server.on("/", handleRoot);
-
-  server.begin();
+  http.end();
 }
 
-// =====================================================
-// LOOP
-// =====================================================
-
+// ================= LOOP =================
 void loop() {
+  unsigned long now = millis();
 
-  server.handleClient();
+  // Read sensors every 2s and update TFT
+  if (now - lastSensorRead >= SENSOR_INTERVAL) {
+    lastSensorRead = now;
+    readSensors();
+    updateDisplay();
+  }
 
-  if (millis() - lastUpdate > 2000) {
-
-    lastUpdate = millis();
-
-    // DHT11
-    temperature = dht.readTemperature();
-    humidity = dht.readHumidity();
-
-    // BMP280
-    pressure = bmp.readPressure() / 100.0F;
-
-    altitude = bmp.readAltitude(1013.25);
-
-    // LDR
-    ldrRaw = analogRead(LDR_PIN);
-
-    // Convert to percentage
-    lightPercent = map(ldrRaw, 0, 4095, 0, 100);
-
-    // Limit values
-    lightPercent = constrain(lightPercent, 0, 100);
-
-    // UPDATE TFT
-    updateTFT();
+  // POST to server every 30s
+  if (now - lastPost >= POST_INTERVAL) {
+    lastPost = now;
+    postReadings();
   }
 }
