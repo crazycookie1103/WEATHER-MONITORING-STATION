@@ -16,6 +16,6 @@ app.include_router(analytics.router, prefix="/api")
 app.include_router(alerts.router, prefix="/api")
 
 
-@app.get("/")
-def home():
-    return {"message": "Weather Monitor API Running"}
+@app.get("/health")
+def health():
+    return {"status": "ok"}
