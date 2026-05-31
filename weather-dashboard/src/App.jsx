@@ -29,10 +29,13 @@ export default function App() {
       setPredictions(p);
       setAccuracy(acc);
       setLastUpdated(new Date());
-      if (a.length && a[0].id !== lastAlertId) {
-        toast.error(a[0].message, { duration: 6000 });
-        setLastAlertId(a[0].id);
-      }
+     if (a.length && a[0].id !== lastAlertId) {
+  const alertAge = Date.now() - new Date(a[0].triggered_at).getTime();
+  if (alertAge < 10 * 60 * 1000) {
+    toast.error(a[0].message, { duration: 6000 });
+  }
+  setLastAlertId(a[0].id);
+}
       setAlerts(a);
     } catch (e) {
       toast.error('Cannot reach backend');
