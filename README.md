@@ -1,6 +1,6 @@
-# 🌤 ESP32 Weather Station
+# IOT INDOOR CLIMATE ANALYSER
 
-A full-stack IoT weather monitoring system that reads real-time environmental data from an ESP32 microcontroller and displays it on a live web dashboard with ML-powered forecasting and threshold-based alerts.
+A full-stack monitoring system that reads real-time environmental data from an ESP32 microcontroller and displays it on a live web dashboard with ML-powered forecasting and threshold-based alerts.
 
 **Live Demo:** [weather-dashboard.vercel.app](https://weather-monitoring-station.vercel.app/) · **API:** [weather-api.onrender.com](https://weather-monitoring-station.onrender.com)
 
@@ -232,15 +232,6 @@ npm install
 npm run dev
 ```
 
-### ESP32 setup
-1. Install Arduino IDE with ESP32 board support
-2. Install libraries: `DHT sensor library`, `Adafruit BMP280`, `TFT_eSPI`
-3. Update WiFi credentials and backend URL in the sketch
-4. Set `X-API-Key` in the sketch to match your `.env` API_KEY
-5. Upload and open Serial Monitor — you should see `POST status: 200`
-
----
-
 ## Deployment
 
 ### Backend → Render
@@ -284,17 +275,5 @@ npm run dev
 - **Toast notifications** — new alerts pop up automatically and dismiss after 2 minutes
 
 
----
-
-## Possible future improvements
-
-- Supabase Realtime websocket subscription to replace polling (true push updates)
-- AQI data from OpenWeatherMap Air Pollution API
-- Facebook Prophet model for seasonality-aware forecasting after 2+ weeks of data
-- Sensor health monitoring — detect when ESP32 stops posting
-- CSV/Excel data export endpoint
-- Mobile app via React Native reusing the same FastAPI backend
-
----
 
 
